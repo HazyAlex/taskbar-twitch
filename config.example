@@ -1,0 +1,9 @@
+{
+    "client": "example token",
+    "secret": "example secret",
+    "channels": [
+        "museun",
+        "j_blow",
+        "mr4thdimention"
+    ]
+}

@@ -1,51 +1,11 @@
+mod config;
+
+use config::Config;
 use serde_json::Value;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 
 // TODO: Better .expect() error messages.
 
-struct Config {
-    client: String,
-    secret: String,
-}
-
-fn read_config(filename: &str) -> Config {
-    let file = File::open(filename)
-        .expect("please ensure that there's a valid secret file in the same directory.");
-    let reader = BufReader::new(file);
-
-    let mut config: Config = Config {
-        client: String::new(),
-        secret: String::new(),
-    };
-
-    for line in reader.lines() {
-        let line = line.expect("valid line.");
-        let parts: Vec<&str> = line.split(":").collect();
-
-        if parts.len() != 2 {
-            panic!("Invalid format, example: 'Client:ThisIsAnExampleClientID'.")
-        }
-
-        if parts[0].to_lowercase() == "client" {
-            config.client.push_str(parts[1]);
-        }
-        if parts[0].to_lowercase() == "secret" {
-            config.secret.push_str(parts[1]);
-        }
-    }
-
-    if config.client.is_empty() {
-        panic!("The client field is required.");
-    }
-    if config.secret.is_empty() {
-        panic!("The secret field is required.");
-    }
-
-    return config;
-}
-
-async fn perform_auth(client: &reqwest::Client, config: Config) -> String {
+async fn perform_auth(client: &reqwest::Client, config: &Config) -> String {
     let url = format!(
         "https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&grant_type=client_credentials",
         config.client, config.secret
@@ -74,12 +34,68 @@ async fn perform_auth(client: &reqwest::Client, config: Config) -> String {
     return format!("Bearer {}", token);
 }
 
+async fn update_channels(client: &reqwest::Client, token: String, config: &mut Config) {
+    let mut url = String::from("https://api.twitch.tv/helix/streams?");
+
+    // FIXME: This is slow. There's probably a better way of doing this.
+    for channel in &config.channels {
+        url.push_str("user_login=");
+        url.push_str(channel.name.as_str());
+        url.push_str("&");
+    }
+
+    let response = client
+        .get(url)
+        .header("Authorization", token)
+        .header("Client-id", config.client.to_string())
+        .send()
+        .await
+        .expect("valid response.")
+        .json::<Value>()
+        .await
+        .expect("valid JSON message.");
+
+    let contents = response
+        .as_object()
+        .expect("unknown response: not an object.");
+
+    let data = contents["data"].as_array().expect("invalid data.");
+
+    for channel in data {
+        let title = &channel["title"];
+        let name = &channel["user_name"];
+        let viewers = &channel["viewer_count"];
+
+        if !name.is_string() {
+            continue;
+        }
+        let name = name.as_str().unwrap();
+
+        for c in &mut config.channels {
+            if c.name == name {
+                c.is_online = true;
+                // FIXME: There's probably a better way of doing this.
+                c.title = title.as_str().and_then(|x| Some(String::from(x)));
+                c.viewers = viewers.as_u64();
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    let config = read_config("secret");
+    let mut config = config::read("config");
 
     let client = reqwest::Client::new();
 
-    let token = perform_auth(&client, config).await;
-    println!("{}", token);
+    let token = perform_auth(&client, &config).await;
+
+    update_channels(&client, token, &mut config).await;
+
+    println!("Live channels:");
+    for channel in config.channels {
+        if channel.is_online {
+            println!("{:#?}", channel);
+        }
+    }
 }
