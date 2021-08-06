@@ -34,10 +34,9 @@ async fn perform_auth(client: &reqwest::Client, config: &Config) -> String {
     return format!("Bearer {}", token);
 }
 
-async fn update_channels(client: &reqwest::Client, token: String, config: &mut Config) {
+async fn update_channels(client: &reqwest::Client, token: &String, config: &mut Config) {
     let mut url = String::from("https://api.twitch.tv/helix/streams?");
 
-    // FIXME: This is slow. There's probably a better way of doing this.
     for channel in &config.channels {
         url.push_str("user_login=");
         url.push_str(channel.name.as_str());
@@ -74,8 +73,7 @@ async fn update_channels(client: &reqwest::Client, token: String, config: &mut C
         for c in &mut config.channels {
             if c.name == name {
                 c.is_online = true;
-                // FIXME: There's probably a better way of doing this.
-                c.title = title.as_str().and_then(|x| Some(String::from(x)));
+                c.title = title.as_str().map(|x| String::from(x));
                 c.viewers = viewers.as_u64();
             }
         }
@@ -90,12 +88,16 @@ async fn main() {
 
     let token = perform_auth(&client, &config).await;
 
-    update_channels(&client, token, &mut config).await;
+    loop {
+        update_channels(&client, &token, &mut config).await;
 
-    println!("Live channels:");
-    for channel in config.channels {
-        if channel.is_online {
-            println!("{:#?}", channel);
+        println!("Live channels:");
+        for channel in &config.channels {
+            if channel.is_online {
+                println!("{:#?}", channel);
+            }
         }
+
+        std::thread::sleep(std::time::Duration::from_secs(60));
     }
 }
