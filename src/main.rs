@@ -1,5 +1,7 @@
 mod config;
 
+use std::thread;
+
 use config::Config;
 use serde_json::Value;
 
@@ -68,7 +70,7 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &mut 
         if !name.is_string() {
             continue;
         }
-        let name = name.as_str().unwrap();
+        let name = name.as_str().expect("expected to get an username.");
 
         for c in &mut config.channels {
             if c.name == name {
@@ -80,24 +82,110 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &mut 
     }
 }
 
+use winit::{
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
+};
+
+use trayicon::{MenuBuilder, TrayIconBuilder};
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+enum Events {
+    ClickTrayIcon,
+    DoubleClickTrayIcon,
+    Exit,
+    OpenChannelsFile,
+    Active,
+}
+
 #[tokio::main]
 async fn main() {
-    let mut config = config::read("config");
+    tokio::spawn(async {
+        let mut config = config::read("config");
 
-    let client = reqwest::Client::new();
+        let client = reqwest::Client::new();
+        let token = perform_auth(&client, &config).await;
 
-    let token = perform_auth(&client, &config).await;
+        loop {
+            update_channels(&client, &token, &mut config).await;
 
-    loop {
-        update_channels(&client, &token, &mut config).await;
-
-        println!("Live channels:");
-        for channel in &config.channels {
-            if channel.is_online {
-                println!("{:#?}", channel);
+            println!("Live channels:");
+            for channel in &config.channels {
+                if channel.is_online {
+                    println!("{:#?}", channel);
+                }
             }
-        }
 
-        std::thread::sleep(std::time::Duration::from_secs(60));
-    }
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        }
+    });
+
+    run_event_loop();
+}
+
+fn run_event_loop() {
+    let event_loop = EventLoop::<Events>::with_user_event();
+    let window = WindowBuilder::new()
+        .with_visible(false)
+        .build(&event_loop)
+        .expect("valid window.");
+
+    let mut tray_icon = TrayIconBuilder::new()
+        .sender_winit(event_loop.create_proxy())
+        .icon_from_buffer(include_bytes!("../resources/icon.ico"))
+        .tooltip("Taskbar Twitch")
+        .on_click(Events::ClickTrayIcon)
+        .on_double_click(Events::DoubleClickTrayIcon)
+        .menu(
+            MenuBuilder::new()
+                .checkable("Active", true, Events::Active)
+                .item("Open channels file", Events::OpenChannelsFile)
+                .separator()
+                .item("E&xit", Events::Exit),
+        )
+        .build()
+        .expect("Couldn't create a tray icon menu!");
+
+    //
+    // Event loop
+    //
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+
+        // Tray icon uses normal message pump from winit, for orderly closure
+        // and removal of the tray icon when you exit it must be moved inside the main loop.
+        let _ = tray_icon;
+
+        match event {
+            // Main window events
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                window_id,
+            } if window_id == window.id() => {
+                *control_flow = ControlFlow::Exit;
+            }
+
+            // User events
+            Event::UserEvent(e) => match e {
+                Events::Active => {
+                    if let Some(old_value) = tray_icon.get_menu_item_checkable(Events::Active) {
+                        let active = !old_value;
+
+                        tray_icon
+                            .set_menu_item_checkable(Events::Active, active)
+                            .ok();
+
+                        // TODO: Start/stop new requests.
+                    }
+                }
+                Events::OpenChannelsFile => {
+                    println!("Clicked OpenChannelsFile!");
+                }
+                Events::Exit => *control_flow = ControlFlow::Exit,
+                _ => {}
+            },
+            _ => (),
+        }
+    });
 }
