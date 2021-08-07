@@ -48,22 +48,13 @@ async fn main() {
         .build(&event_loop)
         .expect("valid window.");
 
-    let channels = construct_menu(&config);
-
     let mut tray_icon = TrayIconBuilder::new()
         .sender_winit(event_loop.create_proxy())
         .icon_from_buffer(include_bytes!("../resources/icon.ico"))
         .tooltip("Taskbar Twitch")
         .on_click(Events::ClickTrayIcon)
         .on_double_click(Events::DoubleClickTrayIcon)
-        .menu(
-            MenuBuilder::new()
-                .checkable("Active", true, Events::Active)
-                .item("Open channels file", Events::OpenChannelsFile)
-                .submenu("Channels", channels)
-                .separator()
-                .item("E&xit", Events::Exit),
-        )
+        .menu(create_tray_menu(&config))
         .build()
         .expect("Couldn't create a tray icon menu!");
 
@@ -105,6 +96,9 @@ async fn main() {
                 Events::OpenChannel(index) => {
                     println!("Clicked {}!", index);
                 }
+                Events::UpdatedChannels => {
+                    tray_icon.set_menu(&create_tray_menu(&config)).ok();
+                }
                 Events::Exit => *control_flow = ControlFlow::Exit,
                 _ => {}
             },
@@ -113,7 +107,18 @@ async fn main() {
     });
 }
 
-fn construct_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
+fn create_tray_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
+    let channels = create_channels_menu(&config);
+
+    MenuBuilder::new()
+        .checkable("Active", true, Events::Active)
+        .item("Open channels file", Events::OpenChannelsFile)
+        .submenu("Channels", channels)
+        .separator()
+        .item("E&xit", Events::Exit)
+}
+
+fn create_channels_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
     let mut menu_builder: MenuBuilder<Events> = MenuBuilder::new();
 
     let config = config.lock().unwrap();
