@@ -1,86 +1,8 @@
-mod config;
+mod twitch;
+use twitch::State;
 
-use std::thread;
-
-use config::Config;
-use serde_json::Value;
-
-// TODO: Better .expect() error messages.
-
-async fn perform_auth(client: &reqwest::Client, config: &Config) -> String {
-    let url = format!(
-        "https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&grant_type=client_credentials",
-        config.client, config.secret
-    );
-
-    let response: Value = client
-        .post(url)
-        .send()
-        .await
-        .expect("valid response.")
-        .json::<Value>()
-        .await
-        .expect("valid JSON message.");
-
-    if !response.is_object() {
-        panic!("invalid response: not an object.")
-    }
-    if !response["access_token"].is_string() {
-        panic!("invalid response: doesn't have the field 'access_token'.")
-    }
-
-    let token = response["access_token"]
-        .as_str()
-        .expect("valid access token.");
-
-    return format!("Bearer {}", token);
-}
-
-async fn update_channels(client: &reqwest::Client, token: &String, config: &mut Config) {
-    let mut url = String::from("https://api.twitch.tv/helix/streams?");
-
-    for channel in &config.channels {
-        url.push_str("user_login=");
-        url.push_str(channel.name.as_str());
-        url.push_str("&");
-    }
-
-    let response = client
-        .get(url)
-        .header("Authorization", token)
-        .header("Client-id", config.client.to_string())
-        .send()
-        .await
-        .expect("valid response.")
-        .json::<Value>()
-        .await
-        .expect("valid JSON message.");
-
-    let contents = response
-        .as_object()
-        .expect("unknown response: not an object.");
-
-    let data = contents["data"].as_array().expect("invalid data.");
-
-    for channel in data {
-        let title = &channel["title"];
-        let name = &channel["user_name"];
-        let viewers = &channel["viewer_count"];
-
-        if !name.is_string() {
-            continue;
-        }
-        let name = name.as_str().expect("expected to get an username.");
-
-        for c in &mut config.channels {
-            if c.name == name {
-                c.is_online = true;
-                c.title = title.as_str().map(|x| String::from(x));
-                c.viewers = viewers.as_u64();
-            }
-        }
-    }
-}
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use winit::{
     event::{Event, WindowEvent},
@@ -88,48 +10,45 @@ use winit::{
     window::WindowBuilder,
 };
 
-use trayicon::{MenuBuilder, TrayIconBuilder};
+use trayicon::{MenuBuilder, MenuItem, TrayIconBuilder};
 
-#[derive(Clone, Eq, PartialEq, Debug)]
-enum Events {
+//
+// TODO: Better .expect() error messages.
+//
+
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub enum Events {
+    // Tray Icon events
     ClickTrayIcon,
     DoubleClickTrayIcon,
     Exit,
+    // User events
     OpenChannelsFile,
     Active,
+    UpdatedChannels,
+    OpenChannel(usize), // index of the channel in the config
 }
 
 #[tokio::main]
 async fn main() {
-    tokio::spawn(async {
-        let mut config = config::read("config");
+    let config = Arc::new(Mutex::new(twitch::read_config("config")));
 
-        let client = reqwest::Client::new();
-        let token = perform_auth(&client, &config).await;
+    let event_loop = EventLoop::<Events>::with_user_event();
 
-        loop {
-            update_channels(&client, &token, &mut config).await;
-
-            println!("Live channels:");
-            for channel in &config.channels {
-                if channel.is_online {
-                    println!("{:#?}", channel);
-                }
-            }
-
-            std::thread::sleep(std::time::Duration::from_secs(60));
-        }
+    let network_thread_config = config.clone();
+    let network_proxy = event_loop.create_proxy();
+    tokio::task::spawn_blocking(move || {
+        futures::executor::block_on(async {
+            twitch::listen_for_events(network_thread_config, &network_proxy).await;
+        });
     });
 
-    run_event_loop();
-}
-
-fn run_event_loop() {
-    let event_loop = EventLoop::<Events>::with_user_event();
     let window = WindowBuilder::new()
         .with_visible(false)
         .build(&event_loop)
         .expect("valid window.");
+
+    let channels = construct_menu(&config);
 
     let mut tray_icon = TrayIconBuilder::new()
         .sender_winit(event_loop.create_proxy())
@@ -141,6 +60,7 @@ fn run_event_loop() {
             MenuBuilder::new()
                 .checkable("Active", true, Events::Active)
                 .item("Open channels file", Events::OpenChannelsFile)
+                .submenu("Channels", channels)
                 .separator()
                 .item("E&xit", Events::Exit),
         )
@@ -182,10 +102,47 @@ fn run_event_loop() {
                 Events::OpenChannelsFile => {
                     println!("Clicked OpenChannelsFile!");
                 }
+                Events::OpenChannel(index) => {
+                    println!("Clicked {}!", index);
+                }
                 Events::Exit => *control_flow = ControlFlow::Exit,
                 _ => {}
             },
             _ => (),
         }
     });
+}
+
+fn construct_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
+    let mut menu_builder: MenuBuilder<Events> = MenuBuilder::new();
+
+    let config = config.lock().unwrap();
+
+    for (index, channel) in config.channels.iter().enumerate() {
+        let mut result = channel.name.to_string();
+
+        if channel.is_online {
+            //result.push_str(" (LIVE)");
+
+            if let Some(title) = &channel.title {
+                result.push_str(" - ");
+                result.push_str(title.as_str());
+            };
+
+            if let Some(viewers) = channel.viewers {
+                result.push_str(" (");
+                result.push_str(viewers.to_string().as_str());
+                result.push_str(" viewers)");
+            };
+        }
+
+        menu_builder = menu_builder.clone().with(MenuItem::Item {
+            id: Events::OpenChannel(index),
+            name: result,
+            disabled: !channel.is_online,
+            icon: None,
+        });
+    }
+
+    menu_builder.to_owned()
 }
