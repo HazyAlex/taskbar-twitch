@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -7,19 +8,17 @@ use winit::event_loop::EventLoopProxy;
 
 use crate::Events;
 
-#[derive(Debug)]
+/// Default config filename
+pub const DEFAULT_CONFIG_FILE: &'static str = "config";
+pub const UPDATE_CHANNELS_TIME: Duration = Duration::from_secs(60);
+pub const READ_CONFIG_FILE_TIME: Duration = Duration::from_secs(3);
+
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Channel {
     pub name: String,
     pub is_online: bool,
     pub title: Option<String>,
     pub viewers: Option<u64>,
-}
-
-#[derive(Deserialize)]
-pub struct State {
-    pub client: String,
-    pub secret: String,
-    pub channels: Vec<Channel>,
 }
 
 // When we read the channels, we only have the name,
@@ -44,8 +43,38 @@ impl<'a> Deserialize<'a> for Channel {
     }
 }
 
-pub fn read_config(filename: &str) -> State {
-    let file = std::fs::File::open(filename)
+#[derive(Clone, Debug, Deserialize)]
+pub struct State {
+    pub client: String,
+    pub secret: String,
+    pub channels: Vec<Channel>,
+}
+
+fn state_migrate(config: &Arc<Mutex<State>>, new_config: State) {
+    let mut local_config = config.lock().unwrap();
+
+    local_config.client = new_config.client.clone();
+    local_config.secret = new_config.secret.clone();
+
+    // We first save a copy of the old channels, then we set the state to the new one.
+    // With the old channels, the channels that exist in the new one just have to be updated.
+    // And with this, we can save the previous state which will be refreshed the next time that the data is retrieved.
+    let old_channels = local_config.channels.clone();
+
+    local_config.channels = new_config.channels;
+
+    for channel in &mut local_config.channels {
+        for old_channel in &old_channels {
+            if channel.name == old_channel.name {
+                // Save the old data.
+                *channel = old_channel.clone();
+            }
+        }
+    }
+}
+
+pub fn read_config() -> State {
+    let file = std::fs::File::open(DEFAULT_CONFIG_FILE)
         .expect("please ensure that there's a valid secret file in the same directory.");
     let reader = std::io::BufReader::new(file);
 
@@ -152,6 +181,43 @@ pub async fn listen_for_events(config: Arc<Mutex<State>>, proxy: &EventLoopProxy
 
         proxy.send_event(Events::UpdatedChannels).ok();
 
-        std::thread::sleep(std::time::Duration::from_secs(60));
+        std::thread::sleep(UPDATE_CHANNELS_TIME);
+    }
+}
+
+fn compare_state(a: &State, b: &State) -> bool {
+    if a.client != b.client || b.secret != b.secret {
+        return false;
+    }
+
+    if a.channels.len() != b.channels.len() {
+        return false;
+    }
+
+    a.channels
+        .iter()
+        .zip(b.channels.iter())
+        .filter(|(a, b)| *a.name != *b.name)
+        .count()
+        == 0
+}
+
+/// Periodically refresh the global state from the configuration file.
+pub async fn refresh_config(config: Arc<Mutex<State>>, proxy: &EventLoopProxy<Events>) {
+    loop {
+        let old_config = {
+            // Copy the config so we can compare it.
+            config.lock().unwrap().clone()
+        };
+
+        let new_config = read_config();
+
+        if !compare_state(&old_config, &new_config) {
+            state_migrate(&config, new_config);
+
+            proxy.send_event(Events::UpdatedChannels).ok();
+        }
+
+        std::thread::sleep(READ_CONFIG_FILE_TIME);
     }
 }

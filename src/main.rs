@@ -24,14 +24,13 @@ pub enum Events {
     Exit,
     // User events
     OpenChannelsFile,
-    Active,
     UpdatedChannels,
     OpenChannel(usize), // index of the channel in the config
 }
 
 #[tokio::main]
 async fn main() {
-    let config = Arc::new(Mutex::new(twitch::read_config("config")));
+    let config = Arc::new(Mutex::new(twitch::read_config()));
 
     let event_loop = EventLoop::<Events>::with_user_event();
 
@@ -40,6 +39,14 @@ async fn main() {
     tokio::task::spawn_blocking(move || {
         futures::executor::block_on(async {
             twitch::listen_for_events(network_thread_config, &network_proxy).await;
+        });
+    });
+
+    let file_thread_config = config.clone();
+    let file_proxy = event_loop.create_proxy();
+    tokio::task::spawn_blocking(move || {
+        futures::executor::block_on(async {
+            twitch::refresh_config(file_thread_config, &file_proxy).await;
         });
     });
 
@@ -79,17 +86,6 @@ async fn main() {
 
             // User events
             Event::UserEvent(e) => match e {
-                Events::Active => {
-                    if let Some(old_value) = tray_icon.get_menu_item_checkable(Events::Active) {
-                        let active = !old_value;
-
-                        tray_icon
-                            .set_menu_item_checkable(Events::Active, active)
-                            .ok();
-
-                        // TODO: Start/stop new requests.
-                    }
-                }
                 Events::OpenChannelsFile => {
                     println!("Clicked OpenChannelsFile!");
                 }
@@ -111,7 +107,6 @@ fn create_tray_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
     let channels = create_channels_menu(&config);
 
     MenuBuilder::new()
-        .checkable("Active", true, Events::Active)
         .item("Open channels file", Events::OpenChannelsFile)
         .submenu("Channels", channels)
         .separator()
