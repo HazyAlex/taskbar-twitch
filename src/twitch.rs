@@ -1,24 +1,48 @@
+use std::str::FromStr;
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+use structopt::StructOpt;
+
 use winit::event_loop::EventLoopProxy;
 
 use crate::Events;
 
-/// Default config filename
-pub const DEFAULT_CONFIG_FILE: &'static str = "config";
+pub const DEFAULT_CONFIG_FILE: &'static str = "config.json";
+pub const DEFAULT_OPEN_ACTION: &'static str = "browser";
 pub const UPDATE_CHANNELS_TIME: Duration = Duration::from_secs(60);
 pub const READ_CONFIG_FILE_TIME: Duration = Duration::from_secs(3);
 
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
 pub struct Channel {
     pub name: String,
     pub is_online: bool,
     pub title: Option<String>,
     pub viewers: Option<u64>,
+}
+
+impl Channel {
+    fn from(name: String) -> Self {
+        Channel {
+            name,
+            is_online: false,
+            title: None,
+            viewers: None,
+        }
+    }
+}
+
+// Deserializing from the command line
+impl FromStr for Channel {
+    type Err = structopt::clap::Error;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        Ok(Channel::from(name.into()))
+    }
 }
 
 // When we read the channels, we only have the name,
@@ -34,31 +58,90 @@ impl<'a> Deserialize<'a> for Channel {
             .as_str()
             .ok_or(serde::de::Error::custom("expected a string"))?;
 
-        Ok(Channel {
-            name: String::from(name),
-            is_online: false,
-            title: None,
-            viewers: None,
-        })
+        Ok(Channel::from(String::from(name)))
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenStreamUsing {
+    Browser,
+    Mpv,
+    Streamlink,
+}
+
+// Deserializing from the command line
+impl FromStr for OpenStreamUsing {
+    type Err = structopt::clap::Error;
+
+    fn from_str(player: &str) -> Result<Self, Self::Err> {
+        match player {
+            "browser" => Ok(OpenStreamUsing::Browser),
+            "mpv" => Ok(OpenStreamUsing::Mpv),
+            "streamlink" => Ok(OpenStreamUsing::Streamlink),
+            _ => Err(structopt::clap::Error {
+                message: "Couldn't parse the player option.".into(),
+                kind: structopt::clap::ErrorKind::ValueValidation,
+                info: None,
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, StructOpt)]
+#[structopt(name = "options")]
 pub struct State {
+    #[structopt(short, long, default_value = "")]
     pub client: String,
+
+    #[structopt(short, long, default_value = "")]
     pub secret: String,
+
+    #[structopt(short, long, default_value = DEFAULT_OPEN_ACTION)]
+    pub player: OpenStreamUsing,
+
+    #[structopt(short, long, default_value = DEFAULT_CONFIG_FILE)]
+    #[serde(skip)]
+    pub config_file: String,
+
+    #[structopt(short, long, default_value = "")]
     pub channels: Vec<Channel>,
+}
+
+// TODO: Figure out a way of knowing if the structure changes,
+//        because if it does, we'll want to add fields here.
+fn compare_state(a: &State, b: &State) -> bool {
+    if a.client != b.client || b.secret != b.secret {
+        return false;
+    }
+
+    if a.player != b.player || a.config_file != b.config_file {
+        return false;
+    }
+
+    if a.channels.len() != b.channels.len() {
+        return false;
+    }
+
+    a.channels
+        .iter()
+        .zip(b.channels.iter())
+        .filter(|(a, b)| *a.name != *b.name)
+        .count()
+        == 0
 }
 
 fn state_migrate(config: &Arc<Mutex<State>>, new_config: State) {
     let mut local_config = config.lock().unwrap();
 
+    // TODO: Figure out a way of knowing if the structure changes,
+    //        because if it does, we'll want to add fields here.
     local_config.client = new_config.client.clone();
     local_config.secret = new_config.secret.clone();
+    local_config.player = new_config.player;
+    local_config.config_file = new_config.config_file.clone();
 
-    // We first save a copy of the old channels, then we set the state to the new one.
-    // With the old channels, the channels that exist in the new one just have to be updated.
-    // And with this, we can save the previous state which will be refreshed the next time that the data is retrieved.
+    // Merge the existing channel information with the new one.
     let old_channels = local_config.channels.clone();
 
     local_config.channels = new_config.channels;
@@ -74,6 +157,8 @@ fn state_migrate(config: &Arc<Mutex<State>>, new_config: State) {
 }
 
 pub fn read_config() -> State {
+    // TODO: Handle the parameters.
+
     let file = std::fs::File::open(DEFAULT_CONFIG_FILE)
         .expect("please ensure that there's a valid secret file in the same directory.");
     let reader = std::io::BufReader::new(file);
@@ -183,23 +268,6 @@ pub async fn listen_for_events(config: Arc<Mutex<State>>, proxy: &EventLoopProxy
 
         std::thread::sleep(UPDATE_CHANNELS_TIME);
     }
-}
-
-fn compare_state(a: &State, b: &State) -> bool {
-    if a.client != b.client || b.secret != b.secret {
-        return false;
-    }
-
-    if a.channels.len() != b.channels.len() {
-        return false;
-    }
-
-    a.channels
-        .iter()
-        .zip(b.channels.iter())
-        .filter(|(a, b)| *a.name != *b.name)
-        .count()
-        == 0
 }
 
 /// Periodically refresh the global state from the configuration file.

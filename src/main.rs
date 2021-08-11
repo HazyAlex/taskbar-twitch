@@ -30,26 +30,31 @@ pub enum Events {
 
 #[tokio::main]
 async fn main() {
-    let config = Arc::new(Mutex::new(twitch::read_config()));
+    let state = Arc::new(Mutex::new(twitch::read_config()));
 
     let event_loop = EventLoop::<Events>::with_user_event();
 
-    let network_thread_config = config.clone();
+    let network_thread_state = state.clone();
     let network_proxy = event_loop.create_proxy();
     tokio::task::spawn_blocking(move || {
         futures::executor::block_on(async {
-            twitch::listen_for_events(network_thread_config, &network_proxy).await;
+            twitch::listen_for_events(network_thread_state, &network_proxy).await;
         });
     });
 
-    let file_thread_config = config.clone();
+    let file_thread_state = state.clone();
     let file_proxy = event_loop.create_proxy();
     tokio::task::spawn_blocking(move || {
         futures::executor::block_on(async {
-            twitch::refresh_config(file_thread_config, &file_proxy).await;
+            twitch::refresh_config(file_thread_state, &file_proxy).await;
         });
     });
 
+    let event_loop_state = state.clone();
+    run_event_loop(event_loop, event_loop_state);
+}
+
+fn run_event_loop(event_loop: EventLoop<Events>, state: Arc<Mutex<State>>) {
     let window = WindowBuilder::new()
         .with_visible(false)
         .build(&event_loop)
@@ -61,13 +66,10 @@ async fn main() {
         .tooltip("Taskbar Twitch")
         .on_click(Events::ClickTrayIcon)
         .on_double_click(Events::DoubleClickTrayIcon)
-        .menu(create_tray_menu(&config))
+        .menu(create_tray_menu(&state))
         .build()
         .expect("Couldn't create a tray icon menu!");
 
-    //
-    // Event loop
-    //
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
@@ -87,13 +89,32 @@ async fn main() {
             // User events
             Event::UserEvent(e) => match e {
                 Events::OpenChannelsFile => {
-                    println!("Clicked OpenChannelsFile!");
+                    let local_state = state.lock().unwrap();
+
+                    open::that(local_state.config_file.as_str()).ok();
                 }
                 Events::OpenChannel(index) => {
-                    println!("Clicked {}!", index);
+                    let local_state = state.lock().unwrap();
+
+                    let mut result = String::new();
+
+                    match local_state.player {
+                        twitch::OpenStreamUsing::Browser => {
+                            result.push_str("https://twitch.tv/");
+                            result.push_str(local_state.channels[index].name.as_str());
+                        }
+                        twitch::OpenStreamUsing::Mpv => {
+                            unimplemented!("mpv");
+                        }
+                        twitch::OpenStreamUsing::Streamlink => {
+                            unimplemented!("streamlink");
+                        }
+                    }
+
+                    open::that(result).unwrap();
                 }
                 Events::UpdatedChannels => {
-                    tray_icon.set_menu(&create_tray_menu(&config)).ok();
+                    tray_icon.set_menu(&create_tray_menu(&state)).ok();
                 }
                 Events::Exit => *control_flow = ControlFlow::Exit,
                 _ => {}

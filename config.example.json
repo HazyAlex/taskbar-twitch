@@ -1,6 +1,7 @@
 {
     "client": "example token",
     "secret": "example secret",
+    "player": "browser",
     "channels": [
         "museun",
         "j_blow",
