@@ -1,170 +1,20 @@
-use std::str::FromStr;
+use crate::config;
+use crate::config::State;
+use crate::Events;
 
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use serde::{Deserialize, Deserializer};
 use serde_json::Value;
-use structopt::StructOpt;
 
 use winit::event_loop::EventLoopProxy;
+use winrt_notification::Toast;
 
-use crate::Events;
-
-pub const DEFAULT_CONFIG_FILE: &'static str = "config.json";
-pub const DEFAULT_OPEN_ACTION: &'static str = "browser";
 pub const UPDATE_CHANNELS_TIME: Duration = Duration::from_secs(60);
 pub const READ_CONFIG_FILE_TIME: Duration = Duration::from_secs(3);
-
-#[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
-pub struct Channel {
-    pub name: String,
-    pub is_online: bool,
-    pub title: Option<String>,
-    pub viewers: Option<u64>,
-}
-
-impl Channel {
-    fn from(name: String) -> Self {
-        Channel {
-            name,
-            is_online: false,
-            title: None,
-            viewers: None,
-        }
-    }
-}
-
-// Deserializing from the command line
-impl FromStr for Channel {
-    type Err = structopt::clap::Error;
-
-    fn from_str(name: &str) -> Result<Self, Self::Err> {
-        Ok(Channel::from(name.into()))
-    }
-}
-
-// When we read the channels, we only have the name,
-//  so we just read the name and fill the other fields.
-impl<'a> Deserialize<'a> for Channel {
-    fn deserialize<D>(deserializer: D) -> Result<Channel, D::Error>
-    where
-        D: Deserializer<'a>,
-    {
-        let value: serde_json::Value = serde::Deserialize::deserialize(deserializer)?;
-
-        let name = value
-            .as_str()
-            .ok_or(serde::de::Error::custom("expected a string"))?;
-
-        Ok(Channel::from(String::from(name)))
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum OpenStreamUsing {
-    Browser,
-    Mpv,
-    Streamlink,
-}
-
-// Deserializing from the command line
-impl FromStr for OpenStreamUsing {
-    type Err = structopt::clap::Error;
-
-    fn from_str(player: &str) -> Result<Self, Self::Err> {
-        match player {
-            "browser" => Ok(OpenStreamUsing::Browser),
-            "mpv" => Ok(OpenStreamUsing::Mpv),
-            "streamlink" => Ok(OpenStreamUsing::Streamlink),
-            _ => Err(structopt::clap::Error {
-                message: "Couldn't parse the player option.".into(),
-                kind: structopt::clap::ErrorKind::ValueValidation,
-                info: None,
-            }),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, StructOpt)]
-#[structopt(name = "options")]
-pub struct State {
-    #[structopt(short, long, default_value = "")]
-    pub client: String,
-
-    #[structopt(short, long, default_value = "")]
-    pub secret: String,
-
-    #[structopt(short, long, default_value = DEFAULT_OPEN_ACTION)]
-    pub player: OpenStreamUsing,
-
-    #[structopt(short, long, default_value = DEFAULT_CONFIG_FILE)]
-    #[serde(skip)]
-    pub config_file: String,
-
-    #[structopt(short, long, default_value = "")]
-    pub channels: Vec<Channel>,
-}
-
-// TODO: Figure out a way of knowing if the structure changes,
-//        because if it does, we'll want to add fields here.
-fn compare_state(a: &State, b: &State) -> bool {
-    if a.client != b.client || b.secret != b.secret {
-        return false;
-    }
-
-    if a.player != b.player || a.config_file != b.config_file {
-        return false;
-    }
-
-    if a.channels.len() != b.channels.len() {
-        return false;
-    }
-
-    a.channels
-        .iter()
-        .zip(b.channels.iter())
-        .filter(|(a, b)| *a.name != *b.name)
-        .count()
-        == 0
-}
-
-fn state_migrate(config: &Arc<Mutex<State>>, new_config: State) {
-    let mut local_config = config.lock().unwrap();
-
-    // TODO: Figure out a way of knowing if the structure changes,
-    //        because if it does, we'll want to add fields here.
-    local_config.client = new_config.client.clone();
-    local_config.secret = new_config.secret.clone();
-    local_config.player = new_config.player;
-    local_config.config_file = new_config.config_file.clone();
-
-    // Merge the existing channel information with the new one.
-    let old_channels = local_config.channels.clone();
-
-    local_config.channels = new_config.channels;
-
-    for channel in &mut local_config.channels {
-        for old_channel in &old_channels {
-            if channel.name == old_channel.name {
-                // Save the old data.
-                *channel = old_channel.clone();
-            }
-        }
-    }
-}
-
-pub fn read_config() -> State {
-    // TODO: Handle the parameters.
-
-    let file = std::fs::File::open(DEFAULT_CONFIG_FILE)
-        .expect("please ensure that there's a valid secret file in the same directory.");
-    let reader = std::io::BufReader::new(file);
-
-    return serde_json::from_reader(reader).expect("valid config format.");
-}
 
 async fn get_token(client: &reqwest::Client, config: &Arc<Mutex<State>>) -> String {
     // Get the mutex, build the URL based on the client & secret and unlock it.
@@ -185,6 +35,8 @@ async fn get_token(client: &reqwest::Client, config: &Arc<Mutex<State>>) -> Stri
         .json::<Value>()
         .await
         .expect("valid JSON message.");
+
+    // TODO: Handle invalid client_id/secret
 
     if !response.is_object() {
         panic!("invalid response: not an object.")
@@ -230,6 +82,8 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
         .as_object()
         .expect("unknown response: not an object.");
 
+    // TODO: Handle unknown channels better
+
     let data = contents["data"].as_array().expect("invalid data.");
 
     for channel in data {
@@ -247,9 +101,25 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
 
             for c in &mut local_config.channels {
                 if c.name == name {
-                    c.is_online = true;
                     c.title = title.as_str().map(|x| String::from(x).trim().to_string());
                     c.viewers = viewers.as_u64();
+
+                    // If the channel wasn't live before, notify the user.
+                    if !c.is_online {
+                        let notification_title = title.as_str().unwrap_or(name);
+                        let notification_text = format!(
+                            "{} is live! ({} viewers)",
+                            name,
+                            viewers
+                                .as_u64()
+                                .map(|x| x.to_string())
+                                .unwrap_or_else(|| String::from("unknown"))
+                        );
+
+                        send_notification(&notification_title, &notification_text);
+                    }
+
+                    c.is_online = true;
                 }
             }
         }
@@ -278,14 +148,46 @@ pub async fn refresh_config(config: Arc<Mutex<State>>, proxy: &EventLoopProxy<Ev
             config.lock().unwrap().clone()
         };
 
-        let new_config = read_config();
+        let new_config = config::read();
 
-        if !compare_state(&old_config, &new_config) {
-            state_migrate(&config, new_config);
+        if !config::compare(&old_config, &new_config) {
+            config::migrate(&config, new_config);
 
             proxy.send_event(Events::UpdatedChannels).ok();
         }
 
         std::thread::sleep(READ_CONFIG_FILE_TIME);
+    }
+}
+
+fn send_notification(title: &str, text: &str) {
+    let icon_path = std::fs::canonicalize("./resources/icon.ico")
+        .map(|path| remove_extended_path_prefix(path))
+        .unwrap_or_default();
+
+    // As we don't have an 'AppUserModeID', we'll just steal an appropriate one.
+    Toast::new("Microsoft.Windows.MediaPlayer32")
+        .icon(
+            &Path::new(&icon_path),
+            winrt_notification::IconCrop::Circular,
+            "application icon",
+        )
+        .title(title)
+        .text1(text)
+        .sound(Some(winrt_notification::Sound::Reminder))
+        .duration(winrt_notification::Duration::Short)
+        .show()
+        .expect("unable to toast");
+}
+
+fn remove_extended_path_prefix(path: PathBuf) -> String {
+    const PREFIX: &str = r#"\\?\"#;
+
+    let p = path.display().to_string();
+
+    if p.starts_with(PREFIX) {
+        p[PREFIX.len()..].to_string()
+    } else {
+        p
     }
 }

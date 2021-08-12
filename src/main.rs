@@ -1,5 +1,7 @@
+mod config;
+use config::State;
+
 mod twitch;
-use twitch::State;
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -30,7 +32,7 @@ pub enum Events {
 
 #[tokio::main]
 async fn main() {
-    let state = Arc::new(Mutex::new(twitch::read_config()));
+    let state = Arc::new(Mutex::new(config::read()));
 
     let event_loop = EventLoop::<Events>::with_user_event();
 
@@ -99,14 +101,14 @@ fn run_event_loop(event_loop: EventLoop<Events>, state: Arc<Mutex<State>>) {
                     let mut result = String::new();
 
                     match local_state.player {
-                        twitch::OpenStreamUsing::Browser => {
+                        config::OpenStreamUsing::Browser => {
                             result.push_str("https://twitch.tv/");
                             result.push_str(local_state.channels[index].name.as_str());
                         }
-                        twitch::OpenStreamUsing::Mpv => {
+                        config::OpenStreamUsing::Mpv => {
                             unimplemented!("mpv");
                         }
-                        twitch::OpenStreamUsing::Streamlink => {
+                        config::OpenStreamUsing::Streamlink => {
                             unimplemented!("streamlink");
                         }
                     }
