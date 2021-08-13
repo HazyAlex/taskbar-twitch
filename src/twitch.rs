@@ -29,26 +29,26 @@ async fn get_token(client: &reqwest::Client, config: &Arc<Mutex<State>>) -> Stri
         .post(url)
         .send()
         .await
-        .expect("valid response.")
+        .expect("Valid response.")
         .json::<Value>()
         .await
-        .expect("valid JSON message.");
+        .expect("Valid JSON message.");
 
     if !response.is_object() {
-        panic!("invalid response: not an object.")
+        panic!("Invalid response: not an object.")
     }
 
     if !response["access_token"].is_string() {
         if response["message"].is_string() {
-            panic!("invalid credentials.")
+            panic!("Invalid credentials.")
         }
 
-        panic!("invalid response: doesn't have the field 'access_token'.")
+        panic!("Invalid response: doesn't have the field 'access_token'.")
     }
 
     let token = response["access_token"]
         .as_str()
-        .expect("valid access token.");
+        .expect("Valid access token.");
 
     return format!("Bearer {}", token);
 }
@@ -74,20 +74,20 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
         .header("Client-id", client_id)
         .send()
         .await
-        .expect("valid response.")
+        .expect("Valid response.")
         .json::<Value>()
         .await
-        .expect("valid JSON message.");
+        .expect("Valid JSON message.");
 
     let contents = response
         .as_object()
-        .expect("unknown response: not an object.");
+        .expect("Unknown response: not an object.");
 
     if contents.contains_key("error") || !contents.contains_key("data") {
         panic!("Invalid API response received! Please check if the channels are valid.");
     }
 
-    let data = contents["data"].as_array().expect("invalid data.");
+    let data = contents["data"].as_array().expect("Invalid data.");
 
     for channel in data {
         let title = &channel["title"];
@@ -97,7 +97,7 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
         if !name.is_string() {
             continue;
         }
-        let name = name.as_str().expect("expected to get an username.");
+        let name = name.as_str().expect("Expected to get an username.");
 
         {
             let mut local_config = config.lock().unwrap();

@@ -63,7 +63,7 @@ fn run_event_loop(event_loop: EventLoop<Events>, state: Arc<Mutex<State>>) {
     let window = WindowBuilder::new()
         .with_visible(false)
         .build(&event_loop)
-        .expect("valid window.");
+        .expect("Valid window.");
 
     let mut tray_icon = TrayIconBuilder::new()
         .sender_winit(event_loop.create_proxy())
@@ -190,7 +190,7 @@ fn send_notification(title: &str, text: &str) {
         .sound(Some(winrt_notification::Sound::Reminder))
         .duration(winrt_notification::Duration::Short)
         .show()
-        .expect("unable to toast");
+        .expect("Unable to create the notification.");
 }
 
 fn remove_extended_path_prefix(path: PathBuf) -> String {

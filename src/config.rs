@@ -47,7 +47,7 @@ impl<'a> Deserialize<'a> for Channel {
 
         let name = value
             .as_str()
-            .ok_or(serde::de::Error::custom("expected a string"))?;
+            .ok_or(serde::de::Error::custom("Expected a string"))?;
 
         Ok(Channel::from(String::from(name)))
     }
@@ -162,10 +162,10 @@ pub fn migrate(config: &Arc<Mutex<State>>, new_config: State) {
 
 fn read_state(filename: &str) -> State {
     let file = std::fs::File::open(filename)
-        .expect("please ensure that there's a valid secret file in the same directory.");
+        .expect("Please ensure that there's a valid secret file in the same directory.");
     let reader = std::io::BufReader::new(file);
 
-    let mut state: State = serde_json::from_reader(reader).expect("valid config format.");
+    let mut state: State = serde_json::from_reader(reader).expect("Valid config format.");
 
     // As the 'config_file' field is not serialized, we need to set it.
     state.config_file = String::from(filename);
