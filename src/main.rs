@@ -64,7 +64,7 @@ fn run_event_loop(event_loop: EventLoop<Events>, state: Arc<Mutex<State>>) {
 
     let mut tray_icon = TrayIconBuilder::new()
         .sender_winit(event_loop.create_proxy())
-        .icon_from_buffer(include_bytes!("../resources/icon.ico"))
+        .icon_from_buffer(include_bytes!("../resources/twitch.ico"))
         .tooltip("Taskbar Twitch")
         .on_click(Events::ClickTrayIcon)
         .on_double_click(Events::DoubleClickTrayIcon)

@@ -161,7 +161,7 @@ pub async fn refresh_config(config: Arc<Mutex<State>>, proxy: &EventLoopProxy<Ev
 }
 
 fn send_notification(title: &str, text: &str) {
-    let icon_path = std::fs::canonicalize("./resources/icon.ico")
+    let icon_path = std::fs::canonicalize("./resources/twitch.ico")
         .map(|path| remove_extended_path_prefix(path))
         .unwrap_or_default();
 
