@@ -12,9 +12,9 @@ serde_json = "1.0.66"
 structopt = "0.3"
 
 tokio = { version = "1.9.0", features = ["macros", "rt-multi-thread"] }
-futures = "0.3.16"
+futures = { version = "0.3.16", features = ["executor"] }
 
-winit = "0.24.0"
+winit = { version = "0.24.0", features = [] }
 open = "2.0.0"
 winrt-notification = "0.3.1"
 trayicon = { version = "0.1.1", features = ["winit"] }

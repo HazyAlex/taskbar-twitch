@@ -94,7 +94,7 @@ struct Arguments {
     #[structopt(short = "f", long = "file")]
     config_file: Option<String>,
 
-    #[structopt(short = "u", long = "channels")]
+    #[structopt(short = "u", long = "channels", use_delimiter = true)]
     channels: Option<Vec<Channel>>,
 }
 
