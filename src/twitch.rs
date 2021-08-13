@@ -1,9 +1,8 @@
 use crate::config;
 use crate::config::State;
+use crate::send_notification;
 use crate::Events;
 
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -11,7 +10,6 @@ use std::time::Duration;
 use serde_json::Value;
 
 use winit::event_loop::EventLoopProxy;
-use winrt_notification::Toast;
 
 pub const UPDATE_CHANNELS_TIME: Duration = Duration::from_secs(60);
 pub const READ_CONFIG_FILE_TIME: Duration = Duration::from_secs(3);
@@ -36,12 +34,15 @@ async fn get_token(client: &reqwest::Client, config: &Arc<Mutex<State>>) -> Stri
         .await
         .expect("valid JSON message.");
 
-    // TODO: Handle invalid client_id/secret
-
     if !response.is_object() {
         panic!("invalid response: not an object.")
     }
+
     if !response["access_token"].is_string() {
+        if response["message"].is_string() {
+            panic!("invalid credentials.")
+        }
+
         panic!("invalid response: doesn't have the field 'access_token'.")
     }
 
@@ -82,7 +83,9 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
         .as_object()
         .expect("unknown response: not an object.");
 
-    // TODO: Handle unknown channels better
+    if contents.contains_key("error") || !contents.contains_key("data") {
+        panic!("Invalid API response received! Please check if the channels are valid.");
+    }
 
     let data = contents["data"].as_array().expect("invalid data.");
 
@@ -157,37 +160,5 @@ pub async fn refresh_config(config: Arc<Mutex<State>>, proxy: &EventLoopProxy<Ev
         }
 
         std::thread::sleep(READ_CONFIG_FILE_TIME);
-    }
-}
-
-fn send_notification(title: &str, text: &str) {
-    let icon_path = std::fs::canonicalize("./resources/twitch.ico")
-        .map(|path| remove_extended_path_prefix(path))
-        .unwrap_or_default();
-
-    // As we don't have an 'AppUserModeID', we'll just steal an appropriate one.
-    Toast::new("Microsoft.Windows.MediaPlayer32")
-        .icon(
-            &Path::new(&icon_path),
-            winrt_notification::IconCrop::Circular,
-            "application icon",
-        )
-        .title(title)
-        .text1(text)
-        .sound(Some(winrt_notification::Sound::Reminder))
-        .duration(winrt_notification::Duration::Short)
-        .show()
-        .expect("unable to toast");
-}
-
-fn remove_extended_path_prefix(path: PathBuf) -> String {
-    const PREFIX: &str = r#"\\?\"#;
-
-    let p = path.display().to_string();
-
-    if p.starts_with(PREFIX) {
-        p[PREFIX.len()..].to_string()
-    } else {
-        p
     }
 }

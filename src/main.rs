@@ -1,8 +1,12 @@
+#![windows_subsystem = "windows"]
+
 mod config;
 use config::State;
 
 mod twitch;
 
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -11,12 +15,9 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
+use winrt_notification::Toast;
 
 use trayicon::{MenuBuilder, MenuItem, TrayIconBuilder};
-
-//
-// TODO: Better .expect() error messages.
-//
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum Events {
@@ -32,6 +33,8 @@ pub enum Events {
 
 #[tokio::main]
 async fn main() {
+    set_panic_hook();
+
     let state = Arc::new(Mutex::new(config::read()));
 
     let event_loop = EventLoop::<Events>::with_user_event();
@@ -168,4 +171,60 @@ fn create_channels_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
     }
 
     menu_builder.to_owned()
+}
+
+fn send_notification(title: &str, text: &str) {
+    let icon_path = std::fs::canonicalize("./resources/twitch.ico")
+        .map(|path| remove_extended_path_prefix(path))
+        .unwrap_or_default();
+
+    // As we don't have an 'AppUserModeID', we'll just steal an appropriate one.
+    Toast::new("Microsoft.Windows.MediaPlayer32")
+        .icon(
+            &Path::new(&icon_path),
+            winrt_notification::IconCrop::Circular,
+            "application icon",
+        )
+        .title(title)
+        .text1(text)
+        .sound(Some(winrt_notification::Sound::Reminder))
+        .duration(winrt_notification::Duration::Short)
+        .show()
+        .expect("unable to toast");
+}
+
+fn remove_extended_path_prefix(path: PathBuf) -> String {
+    const PREFIX: &str = r#"\\?\"#;
+
+    let p = path.display().to_string();
+
+    if p.starts_with(PREFIX) {
+        p[PREFIX.len()..].to_string()
+    } else {
+        p
+    }
+}
+
+fn set_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let mut message = String::new();
+
+        if let Some(s) = info.payload().downcast_ref::<&str>() {
+            message.push_str(s);
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            message.push_str(s);
+        } else {
+            message.push_str("Unknown error.");
+        }
+
+        if let Some(location) = info.location() {
+            message.push_str(
+                format!(" (occurred at: '{}':{})", location.file(), location.line()).as_str(),
+            );
+        }
+
+        send_notification("A runtime error occurred.", message.as_str());
+
+        std::process::exit(1)
+    }));
 }
