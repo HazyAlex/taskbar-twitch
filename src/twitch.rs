@@ -3,6 +3,8 @@ use crate::config::State;
 use crate::send_notification;
 use crate::Events;
 
+use std::sync::mpsc;
+use std::sync::mpsc::TryRecvError;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -11,7 +13,7 @@ use serde_json::Value;
 
 use winit::event_loop::EventLoopProxy;
 
-pub const UPDATE_CHANNELS_TIME: Duration = Duration::from_secs(60);
+pub const UPDATE_CHANNELS_TIME: u64 = 60;
 pub const READ_CONFIG_FILE_TIME: Duration = Duration::from_secs(3);
 
 async fn get_token(client: &reqwest::Client, config: &Arc<Mutex<State>>) -> String {
@@ -129,22 +131,51 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
     }
 }
 
-pub async fn listen_for_events(config: Arc<Mutex<State>>, proxy: &EventLoopProxy<Events>) {
+pub async fn listen_for_events(
+    config: Arc<Mutex<State>>,
+    proxy: &EventLoopProxy<Events>,
+    rx: mpsc::Receiver<()>,
+) {
     let client = reqwest::Client::new();
 
     let token = get_token(&client, &config).await;
 
     loop {
         update_channels(&client, &token, &config).await;
+        let last_update = std::time::SystemTime::now();
 
         proxy.send_event(Events::UpdatedChannels).ok();
 
-        std::thread::sleep(UPDATE_CHANNELS_TIME);
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+
+            match rx.try_recv() {
+                Ok(_) => {
+                    // Received a notification, the config must have changed, we have to update the channels.
+                    break;
+                }
+                Err(TryRecvError::Empty) => {
+                    // Has it been more than X seconds since the last update?
+                    if let Some(time) = last_update.elapsed().ok() {
+                        if time.as_secs() >= UPDATE_CHANNELS_TIME {
+                            break; // If so, send the request to update the channels.
+                        }
+                    }
+                }
+                Err(TryRecvError::Disconnected) => {
+                    panic!("The config/network channel was disconnected.")
+                }
+            }
+        }
     }
 }
 
 /// Periodically refresh the global state from the configuration file.
-pub async fn refresh_config(config: Arc<Mutex<State>>, proxy: &EventLoopProxy<Events>) {
+pub async fn refresh_config(
+    config: Arc<Mutex<State>>,
+    proxy: &EventLoopProxy<Events>,
+    update_tx: mpsc::Sender<()>,
+) {
     loop {
         let old_config = {
             // Copy the config so we can compare it.
@@ -155,6 +186,9 @@ pub async fn refresh_config(config: Arc<Mutex<State>>, proxy: &EventLoopProxy<Ev
 
         if !config::compare(&old_config, &new_config) {
             config::migrate(&config, new_config);
+
+            // Notify the network thread that we have to request an update.
+            update_tx.send(()).ok();
 
             proxy.send_event(Events::UpdatedChannels).ok();
         }

@@ -7,6 +7,7 @@ mod twitch;
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -39,11 +40,15 @@ async fn main() {
 
     let event_loop = EventLoop::<Events>::with_user_event();
 
+    // After reading the config (and if there are changes), notify the network thread
+    //  using this channel so it can fetch the updates for the newly added channels.
+    let (tx, rx) = mpsc::channel();
+
     let network_thread_state = state.clone();
     let network_proxy = event_loop.create_proxy();
     tokio::task::spawn_blocking(move || {
         futures::executor::block_on(async {
-            twitch::listen_for_events(network_thread_state, &network_proxy).await;
+            twitch::listen_for_events(network_thread_state, &network_proxy, rx).await;
         });
     });
 
@@ -51,7 +56,7 @@ async fn main() {
     let file_proxy = event_loop.create_proxy();
     tokio::task::spawn_blocking(move || {
         futures::executor::block_on(async {
-            twitch::refresh_config(file_thread_state, &file_proxy).await;
+            twitch::refresh_config(file_thread_state, &file_proxy, tx).await;
         });
     });
 
