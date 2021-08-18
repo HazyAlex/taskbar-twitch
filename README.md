@@ -1,15 +1,13 @@
 
 # Taskbar Twitch
 
-Windows-only program that stays in the system tray, it will emit a notification every time a channel goes live.
+Windows-only utility that stays in the system tray, it will emit a notification every time a channel goes live.
 
 ![](resources/doc_tray_icon.jpg)
 
-Channels can be added by editing a configuration file (which you can find available as a shortcut by right-clicking the icon).
+The channels can be changed by editing the configuration file (which you can find available as a shortcut by right-clicking the icon - see the image above), the application will then check for changes and then update the channels accordingly without needing to restart.
 
-In the tray menu you can also check the current status of the channels - if they are live the current title and view count will appear.
-
-After opening a channel using the tray icon, the video player (provided by either the flags or the configuration file) will be opened and the stream will start playing.
+After clicking on a channel using the tray icon, the stream will start playing in the video player that was provided to the application by the flags or the configuration file (the stream will be opened in the browser by default).
 
 ### Usage
 

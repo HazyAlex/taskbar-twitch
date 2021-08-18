@@ -105,7 +105,8 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
             let mut local_config = config.lock().unwrap();
 
             for c in &mut local_config.channels {
-                if c.name == name {
+                // Check if the user name matches, not case sensitive
+                if c.name.to_lowercase() == name.to_lowercase() {
                     c.title = title.as_str().map(|x| String::from(x).trim().to_string());
                     c.viewers = viewers.as_u64();
 
