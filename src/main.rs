@@ -20,6 +20,9 @@ use winrt_notification::Toast;
 
 use trayicon::{MenuBuilder, MenuItem, TrayIconBuilder};
 
+// Used to track releases and so that the user knows what version they have.
+const APP_VERSION: &'static str = "Version 1.0.0";
+
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum Events {
     // Tray Icon events
@@ -144,6 +147,12 @@ fn create_tray_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
     let channels = create_channels_menu(&config);
 
     MenuBuilder::new()
+        .with(MenuItem::Item {
+            name: String::from(APP_VERSION),
+            disabled: true,
+            id: Events::ClickTrayIcon,
+            icon: None,
+        })
         .item("Open channels file", Events::OpenChannelsFile)
         .submenu("Channels", channels)
         .separator()
