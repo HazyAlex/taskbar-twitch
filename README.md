@@ -33,5 +33,5 @@ These flags take precedence over the options set in the configuration file.
 The supported players are:
 
 * Browser
-* mpv (TODO)
-* Streamlink (TODO)
+* mpv
+* Streamlink

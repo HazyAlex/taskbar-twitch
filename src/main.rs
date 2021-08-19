@@ -106,22 +106,28 @@ fn run_event_loop(event_loop: EventLoop<Events>, state: Arc<Mutex<State>>) {
                 Events::OpenChannel(index) => {
                     let local_state = state.lock().unwrap();
 
-                    let mut result = String::new();
-
                     match local_state.player {
                         config::OpenStreamUsing::Browser => {
-                            result.push_str("https://twitch.tv/");
+                            let mut result = String::from("https://twitch.tv/");
                             result.push_str(local_state.channels[index].name.as_str());
+
+                            open::that(result).unwrap();
                         }
                         config::OpenStreamUsing::Mpv => {
-                            unimplemented!("mpv");
+                            let mut args = String::from("https://twitch.tv/");
+                            args.push_str(local_state.channels[index].name.as_str());
+                            args.push_str(" --ytdl-format=best");
+
+                            open::with(args, "mpv").unwrap();
                         }
                         config::OpenStreamUsing::Streamlink => {
-                            unimplemented!("streamlink");
+                            let mut args = String::from("twitch.tv/");
+                            args.push_str(local_state.channels[index].name.as_str());
+                            args.push_str(" best");
+
+                            open::with(args, "streamlink").unwrap();
                         }
                     }
-
-                    open::that(result).unwrap();
                 }
                 Events::UpdatedChannels => {
                     tray_icon.set_menu(&create_tray_menu(&state)).ok();
