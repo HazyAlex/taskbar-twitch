@@ -111,35 +111,32 @@ pub struct State {
 
     pub channels: Vec<Channel>,
 }
+impl PartialEq for State {
+    fn eq(&self, other: &Self) -> bool {
+        if self.client != other.client || self.secret != other.secret {
+            return false;
+        }
 
-// TODO: Figure out a way of knowing if the structure changes,
-//        because if it does, we'll want to add fields here.
-pub fn compare(a: &State, b: &State) -> bool {
-    if a.client != b.client || b.secret != b.secret {
-        return false;
+        if self.player != other.player || self.config_file != other.config_file {
+            return false;
+        }
+
+        if self.channels.len() != other.channels.len() {
+            return false;
+        }
+
+        self.channels
+            .iter()
+            .zip(other.channels.iter())
+            .filter(|(a, b)| *a.name != *b.name)
+            .count()
+            == 0
     }
-
-    if a.player != b.player || a.config_file != b.config_file {
-        return false;
-    }
-
-    if a.channels.len() != b.channels.len() {
-        return false;
-    }
-
-    a.channels
-        .iter()
-        .zip(b.channels.iter())
-        .filter(|(a, b)| *a.name != *b.name)
-        .count()
-        == 0
 }
 
 pub fn migrate(config: &Arc<Mutex<State>>, new_config: State) {
     let mut local_config = config.lock().unwrap();
 
-    // TODO: Figure out a way of knowing if the structure changes,
-    //        because if it does, we'll want to add fields here.
     local_config.client = new_config.client.clone();
     local_config.secret = new_config.secret.clone();
     local_config.player = new_config.player;

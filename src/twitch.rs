@@ -185,7 +185,7 @@ pub async fn refresh_config(
 
         let new_config = config::read();
 
-        if !config::compare(&old_config, &new_config) {
+        if old_config != new_config {
             config::migrate(&config, new_config);
 
             // Notify the network thread that we have to request an update.
