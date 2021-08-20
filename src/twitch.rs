@@ -102,12 +102,32 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
         let name = name.as_str().expect("Expected to get an username.");
 
         {
-            let mut local_config = config.lock().unwrap();
+            let local_config: &mut State = &mut config.lock().unwrap();
 
             for c in &mut local_config.channels {
                 // Check if the user name matches, not case sensitive
                 if c.name.to_lowercase() == name.to_lowercase() {
-                    c.title = title.as_str().map(|x| String::from(x).trim().to_string());
+                    let fmt_title = title.as_str().map(|x| String::from(x).trim().to_string());
+
+                    // If channel is being listened to for title changes
+                    if local_config.notify_title_changed.contains(&c.name) {
+                        // If the stream's title changed
+                        if c.is_online && c.title != fmt_title {
+                            let notification_title = title.as_str().unwrap_or(name);
+                            let notification_text = format!(
+                                "{} has changed its title! ({} viewers)",
+                                name,
+                                viewers
+                                    .as_u64()
+                                    .map(|x| x.to_string())
+                                    .unwrap_or_else(|| String::from("unknown"))
+                            );
+
+                            send_notification(&notification_title, &notification_text);
+                        }
+                    }
+
+                    c.title = fmt_title;
                     c.viewers = viewers.as_u64();
 
                     // If the channel wasn't live before, notify the user.
