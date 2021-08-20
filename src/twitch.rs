@@ -91,63 +91,66 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
 
     let data = contents["data"].as_array().expect("Invalid data.");
 
-    for channel in data {
-        let title = &channel["title"];
-        let name = &channel["user_name"];
-        let viewers = &channel["viewer_count"];
+    let local_config: &mut State = &mut config.lock().unwrap();
 
-        if !name.is_string() {
-            continue;
-        }
-        let name = name.as_str().expect("Expected to get an username.");
+    for channel in &mut local_config.channels {
+        // Is this channel present in the API response?
+        let mut found: bool = false;
 
-        {
-            let local_config: &mut State = &mut config.lock().unwrap();
+        for c in data {
+            let name = &c["user_name"];
+            let mut title = &c["title"];
+            let viewers = &c["viewer_count"];
 
-            for c in &mut local_config.channels {
-                // Check if the user name matches, not case sensitive
-                if c.name.to_lowercase() == name.to_lowercase() {
-                    let fmt_title = title.as_str().map(|x| String::from(x).trim().to_string());
-
-                    // If channel is being listened to for title changes
-                    if local_config.notify_title_changed.contains(&c.name) {
-                        // If the stream's title changed
-                        if c.is_online && c.title != fmt_title {
-                            let notification_title = title.as_str().unwrap_or(name);
-                            let notification_text = format!(
-                                "{} has changed its title! ({} viewers)",
-                                name,
-                                viewers
-                                    .as_u64()
-                                    .map(|x| x.to_string())
-                                    .unwrap_or_else(|| String::from("unknown"))
-                            );
-
-                            send_notification(&notification_title, &notification_text);
-                        }
-                    }
-
-                    c.title = fmt_title;
-                    c.viewers = viewers.as_u64();
-
-                    // If the channel wasn't live before, notify the user.
-                    if !c.is_online {
-                        let notification_title = title.as_str().unwrap_or(name);
-                        let notification_text = format!(
-                            "{} is live! ({} viewers)",
-                            name,
-                            viewers
-                                .as_u64()
-                                .map(|x| x.to_string())
-                                .unwrap_or_else(|| String::from("unknown"))
-                        );
-
-                        send_notification(&notification_title, &notification_text);
-                    }
-
-                    c.is_online = true;
-                }
+            if !name.is_string() || !viewers.is_u64() {
+                continue;
             }
+
+            // New accounts can stream without a title, but otherwise they are required to have one.
+            let unknown_title = serde_json::Value::String(String::from("Unknown title"));
+            if !title.is_string() {
+                title = &unknown_title;
+            }
+
+            let name = name.as_str().expect("Expected to get an username.");
+            let viewers = viewers.as_u64().expect("Expected to get the viewer count.");
+            let title = title
+                .as_str()
+                .expect("Expected to get a title.")
+                .trim()
+                .to_string();
+
+            // Check if we found the channel, not case sensitive.
+            if channel.name.to_lowercase() == name.to_lowercase() {
+                found = true;
+
+                // If the title changed when the channel was live,
+                //  we may want to notify the user based on their preferences.
+                if channel.is_online
+                    && channel.title != Some(title.clone())
+                    && local_config.notify_title_changed.contains(&channel.name)
+                {
+                    let notification_text =
+                        format!("{} has changed its title! ({} viewers)", name, viewers);
+
+                    send_notification(&title, &notification_text);
+                }
+
+                // If the channel wasn't live before but is now, notify the user.
+                if !channel.is_online {
+                    let notification_text = format!("{} is live! ({} viewers)", name, viewers);
+
+                    send_notification(&title, &notification_text);
+                }
+
+                channel.title = Some(title);
+                channel.viewers = Some(viewers);
+                channel.is_online = true;
+            }
+        }
+
+        if !found {
+            channel.is_online = false;
         }
     }
 }
