@@ -96,6 +96,9 @@ struct Arguments {
 
     #[structopt(short = "u", long = "channels", use_delimiter = true)]
     channels: Option<Vec<Channel>>,
+
+    #[structopt(short = "t", long = "notify-titles", use_delimiter = true)]
+    notify_title_changed: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -110,7 +113,11 @@ pub struct State {
     pub config_file: String,
 
     pub channels: Vec<Channel>,
+
+    #[serde(default)]
+    pub notify_title_changed: Vec<String>,
 }
+
 impl PartialEq for State {
     fn eq(&self, other: &Self) -> bool {
         if self.client != other.client || self.secret != other.secret {
@@ -118,6 +125,10 @@ impl PartialEq for State {
         }
 
         if self.player != other.player || self.config_file != other.config_file {
+            return false;
+        }
+
+        if self.notify_title_changed != other.notify_title_changed {
             return false;
         }
 
@@ -141,6 +152,7 @@ pub fn migrate(config: &Arc<Mutex<State>>, new_config: State) {
     local_config.secret = new_config.secret.clone();
     local_config.player = new_config.player;
     local_config.config_file = new_config.config_file.clone();
+    local_config.notify_title_changed = new_config.notify_title_changed.clone();
 
     // Merge the existing channel information with the new one.
     let old_channels = local_config.channels.clone();
@@ -193,5 +205,8 @@ pub fn read() -> State {
         player: args.player.unwrap_or(config.player),
         config_file: args.config_file.unwrap_or(config.config_file),
         channels: args.channels.unwrap_or(config.channels),
+        notify_title_changed: args
+            .notify_title_changed
+            .unwrap_or(config.notify_title_changed),
     }
 }
