@@ -97,7 +97,7 @@ struct Arguments {
     #[structopt(short = "u", long = "channels", use_delimiter = true)]
     channels: Option<Vec<Channel>>,
 
-    #[structopt(short = "t", long = "notify-titles", use_delimiter = true)]
+    #[structopt(short = "n", long = "notify-titles", use_delimiter = true)]
     notify_title_changed: Option<Vec<String>>,
 }
 
