@@ -27,7 +27,7 @@ You should also change the channel list to match the ones you are interested in 
 * **-u**, **--channels**: A list of the channels (comma separated) (e.g. `--channels=j_blow,museun,handmade_hero`)
 * **-n**, **--notify-titles**: A list of the channels that will trigger a notification if the title changes (comma separated) (e.g. `--notify-titles=ESL_CSGO`)
 
-These flags take precedence over the options set in the configuration file.
+These flags are optional and take precedence over the options set in the configuration file.
 
 #### Players
 
