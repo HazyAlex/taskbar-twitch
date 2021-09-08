@@ -15,6 +15,7 @@ use winit::event_loop::EventLoopProxy;
 
 pub const UPDATE_CHANNELS_TIME: u64 = 60;
 pub const READ_CONFIG_FILE_TIME: Duration = Duration::from_secs(3);
+pub const MAX_RETRIES: u32 = 3;
 
 async fn get_token(client: &reqwest::Client, config: &Arc<Mutex<State>>) -> String {
     // Get the mutex, build the URL based on the client & secret and unlock it.
@@ -55,7 +56,11 @@ async fn get_token(client: &reqwest::Client, config: &Arc<Mutex<State>>) -> Stri
     return format!("Bearer {}", token);
 }
 
-async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<Mutex<State>>) {
+async fn update_channels(
+    client: &reqwest::Client,
+    token: &String,
+    config: &Arc<Mutex<State>>,
+) -> Result<(), reqwest::Error> {
     let mut url = String::from("https://api.twitch.tv/helix/streams?");
 
     let client_id = {
@@ -75,8 +80,7 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
         .header("Authorization", token)
         .header("Client-id", client_id)
         .send()
-        .await
-        .expect("Valid response.")
+        .await?
         .json::<Value>()
         .await
         .expect("Valid JSON message.");
@@ -153,6 +157,8 @@ async fn update_channels(client: &reqwest::Client, token: &String, config: &Arc<
             channel.is_online = false;
         }
     }
+
+    Ok(())
 }
 
 pub async fn listen_for_events(
@@ -164,8 +170,23 @@ pub async fn listen_for_events(
 
     let token = get_token(&client, &config).await;
 
+    // Sometimes a request might fail temporarily, we want to retry up to MAX_RETRIES times.
+    let mut retry_counter = MAX_RETRIES;
+
     loop {
-        update_channels(&client, &token, &config).await;
+        match update_channels(&client, &token, &config).await {
+            Ok(_) => {
+                retry_counter = MAX_RETRIES;
+            }
+            Err(_) => {
+                if retry_counter != 0 {
+                    retry_counter -= 1;
+                    std::thread::sleep(Duration::from_secs(1));
+                    continue;
+                }
+            }
+        };
+
         let last_update = std::time::SystemTime::now();
 
         proxy.send_event(Events::UpdatedChannels).ok();
