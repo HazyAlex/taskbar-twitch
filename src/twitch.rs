@@ -102,7 +102,7 @@ async fn update_channels(
         let mut found: bool = false;
 
         for c in data {
-            let name = &c["user_name"];
+            let name = &c["user_login"];
             let mut title = &c["title"];
             let viewers = &c["viewer_count"];
 

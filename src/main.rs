@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod config;
+use config::OpenStreamUsing;
 use config::State;
 
 mod twitch;
@@ -10,6 +11,8 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
+
+use enum_iterator::IntoEnumIterator;
 
 use winit::{
     event::{Event, WindowEvent},
@@ -32,6 +35,7 @@ pub enum Events {
     // User events
     OpenChannelsFile,
     UpdatedChannels,
+    ChangeCurrentPlayer(OpenStreamUsing),
     OpenChannel(usize), // index of the channel in the config
 }
 
@@ -109,7 +113,9 @@ fn run_event_loop(event_loop: EventLoop<Events>, state: Arc<Mutex<State>>) {
                 Events::OpenChannel(index) => {
                     let local_state = state.lock().unwrap();
 
-                    match local_state.player {
+                    let current_player = local_state.session_player.unwrap_or(local_state.player);
+
+                    match current_player {
                         config::OpenStreamUsing::Browser => {
                             let mut result = String::from("https://twitch.tv/");
                             result.push_str(local_state.channels[index].name.as_str());
@@ -135,6 +141,16 @@ fn run_event_loop(event_loop: EventLoop<Events>, state: Arc<Mutex<State>>) {
                 Events::UpdatedChannels => {
                     tray_icon.set_menu(&create_tray_menu(&state)).ok();
                 }
+                Events::ChangeCurrentPlayer(player) => {
+                    {
+                        let mut local_state = state.lock().unwrap();
+
+                        local_state.session_player = Some(player);
+                    }
+
+                    // We need to drop the mutex, and now the GUI can be updated.
+                    tray_icon.set_menu(&create_tray_menu(&state)).ok();
+                }
                 Events::Exit => *control_flow = ControlFlow::Exit,
                 _ => {}
             },
@@ -145,6 +161,7 @@ fn run_event_loop(event_loop: EventLoop<Events>, state: Arc<Mutex<State>>) {
 
 fn create_tray_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
     let channels = create_channels_menu(&config);
+    let players = create_players_menu(&config);
 
     MenuBuilder::new()
         .with(MenuItem::Item {
@@ -155,6 +172,7 @@ fn create_tray_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
         })
         .item("Open channels file", Events::OpenChannelsFile)
         .submenu("Channels", channels)
+        .submenu("Player", players)
         .separator()
         .item("E&xit", Events::Exit)
 }
@@ -190,7 +208,29 @@ fn create_channels_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
         });
     }
 
-    menu_builder.to_owned()
+    menu_builder
+}
+
+fn create_players_menu(config: &Arc<Mutex<State>>) -> MenuBuilder<Events> {
+    let mut menu_builder: MenuBuilder<Events> = MenuBuilder::new();
+
+    let config = config.lock().unwrap();
+
+    for player in OpenStreamUsing::into_enum_iter() {
+        // If we already selected a player for the current session, use it.
+        // Otherwise, use the player provided by the arguments/config.
+        let is_selected = if let Some(session_player) = config.session_player {
+            session_player == player
+        } else {
+            config.player == player
+        };
+
+        let event = Events::ChangeCurrentPlayer(player);
+
+        menu_builder = menu_builder.checkable(&player.to_string(), is_selected, event);
+    }
+
+    menu_builder
 }
 
 fn send_notification(title: &str, text: &str) {

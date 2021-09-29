@@ -1,8 +1,10 @@
+use std::fmt::Display;
 use std::str::FromStr;
 
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use enum_iterator::IntoEnumIterator;
 use serde::{Deserialize, Deserializer};
 use structopt::StructOpt;
 
@@ -53,12 +55,23 @@ impl<'a> Deserialize<'a> for Channel {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Eq, IntoEnumIterator)]
 #[serde(rename_all = "lowercase")]
 pub enum OpenStreamUsing {
     Browser,
     Mpv,
     Streamlink,
+}
+
+// Used when printing the available players in the GUI.
+impl Display for OpenStreamUsing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            OpenStreamUsing::Browser => write!(f, "Browser"),
+            OpenStreamUsing::Mpv => write!(f, "Mpv"),
+            OpenStreamUsing::Streamlink => write!(f, "Streamlink"),
+        }
+    }
 }
 
 // Deserializing from the command line
@@ -110,6 +123,9 @@ pub struct State {
     pub player: OpenStreamUsing,
 
     #[serde(skip)]
+    pub session_player: Option<OpenStreamUsing>,
+
+    #[serde(skip)]
     pub config_file: String,
 
     pub channels: Vec<Channel>,
@@ -153,6 +169,9 @@ pub fn migrate(config: &Arc<Mutex<State>>, new_config: State) {
     local_config.player = new_config.player;
     local_config.config_file = new_config.config_file.clone();
     local_config.notify_title_changed = new_config.notify_title_changed.clone();
+
+    // We want to keep the same player that was selected by the user in the current session.
+    // local_config.session_player = new_config.session_player;
 
     // Merge the existing channel information with the new one.
     let old_channels = local_config.channels.clone();
@@ -203,6 +222,11 @@ pub fn read() -> State {
         client: args.client.unwrap_or(config.client),
         secret: args.secret.unwrap_or(config.secret),
         player: args.player.unwrap_or(config.player),
+
+        // The session player will be migrated from the old config,
+        //  so we can safely ignore it here.
+        session_player: None,
+
         config_file: args.config_file.unwrap_or(config.config_file),
         channels: args.channels.unwrap_or(config.channels),
         notify_title_changed: args
