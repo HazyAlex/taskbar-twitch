@@ -1527,7 +1527,7 @@ dependencies = [
 
 [[package]]
 name = "taskbar-twitch"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "enum-iterator",
  "futures",

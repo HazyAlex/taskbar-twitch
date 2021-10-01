@@ -3,11 +3,11 @@
 
 Windows-only utility that stays in the system tray, it will emit a notification every time a channel goes live.
 
-![](resources/doc_tray_icon.jpg)
+![](resources/doc_tray_icon.png)
 
 The channels can be changed by editing the configuration file (which you can find available as a shortcut by right-clicking the icon - see the image above), the application will then check for changes and then update the channels accordingly without needing to restart.
 
-After clicking on a channel using the tray icon, the stream will start playing in the video player that was provided to the application by the flags or the configuration file (the stream will be opened in the browser by default).
+After clicking on a channel using the tray icon, the stream will start playing in the video player that was provided to the application by the flags or the configuration file (the stream will be opened in the browser by default). You can also temporarily select a player for the current session in the menu.
 
 ### Usage
 

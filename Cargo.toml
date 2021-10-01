@@ -1,6 +1,6 @@
 [package]
 name = "taskbar-twitch"
-version = "1.0.2"
+version = "1.0.3"
 authors = ["HazyAlex <HazyAlex@protonmail.com>"]
 edition = "2018"
 

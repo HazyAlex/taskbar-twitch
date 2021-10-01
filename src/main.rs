@@ -24,7 +24,7 @@ use winrt_notification::Toast;
 use trayicon::{MenuBuilder, MenuItem, TrayIconBuilder};
 
 // Used to track releases - it's available in the traybar so that the user knows what version they currently have.
-const APP_VERSION: &'static str = "Version 1.0.2";
+const APP_VERSION: &'static str = "Version 1.0.3";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Events {
